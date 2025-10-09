@@ -1,6 +1,6 @@
 // Declare the top-level modules in the hexagonal architecture.
-pub mod domain;
 pub mod application;
+pub mod domain;
 pub mod infrastructure;
 pub mod presentation;
 

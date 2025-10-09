@@ -35,13 +35,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check formatting
-        working-directory: ./github-trending-summary
         run: cargo fmt -- --check
 
       - name: Run Clippy
-        working-directory: ./github-trending-summary
         run: cargo clippy -- -D warnings
 
       - name: Run tests
-        working-directory: ./github-trending-summary
         run: cargo test --verbose

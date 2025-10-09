@@ -35,10 +35,13 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check formatting
+        working-directory: ./
         run: cargo fmt -- --check
 
       - name: Run Clippy
+        working-directory: ./
         run: cargo clippy -- -D warnings
 
       - name: Run tests
+        working-directory: ./
         run: cargo test --verbose

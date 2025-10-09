@@ -1,0 +1,28 @@
+# config/default.toml
+#
+# This file contains default configuration values for the application.
+# These values can be overridden by environment-specific files (e.g., production.toml)
+# or by environment variables.
+
+# --- GitHub Trending Settings ---
+# The base URL for GitHub Trending.
+# The language will be appended to this URL.
+trending_url_base = "https://github.com/trending/"
+
+# A list of programming languages to fetch trending repositories for.
+# An empty string "" represents "all languages".
+# Example: ["rust", "go", "python", "typescript", ""]
+languages = ["rust", ""]
+
+# --- Summarization Settings ---
+# Configuration for the AI summarization service.
+[summarizer]
+# The prompt to use when asking the AI to summarize repositories.
+# Placeholders like {{language}} and {{repositories}} can be used.
+prompt_template = """
+Please provide a summary of the following trending repositories for the language '{{language}}'.
+Highlight key features, potential use cases, and why they might be trending.
+
+Repositories:
+{{repositories}}
+"""

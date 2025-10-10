@@ -172,7 +172,7 @@ impl TrendingSummary {
     ///
     /// # Examples
     /// ```
-    /// use github_trending_summary::domain::entities::{Repository, TrendingSummary};
+    /// use github_trending_summary::{Repository, TrendingSummary};
     ///
     /// let repo = Repository::new(
     ///     "rust".to_string(),

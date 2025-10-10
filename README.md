@@ -23,10 +23,13 @@ This project adopts the **Hexagonal Architecture** (also known as Ports and Adap
 ## 3. Setup Instructions
 
 ### Prerequisites
-- Rust (latest stable version recommended)
+- Rust 1.70 or higher
 - Git
+- Discord account (for notifications)
+- Google Cloud account (for Gemini API)
 
-### Installation
+### Quick Start
+
 1.  **Clone the repository:**
     ```bash
     git clone <repository-url>
@@ -37,17 +40,35 @@ This project adopts the **Hexagonal Architecture** (also known as Ports and Adap
     Copy the example environment file and fill in the required values.
     ```bash
     cp .env.example .env
+    # Edit .env and fill in your API keys
     ```
-    You will need to provide:
-    - `DISCORD_WEBHOOK_URL`: The webhook URL for your Discord channel.
-    - `GEMINI_API_KEY`: Your API key for the Google Gemini service.
 
-3.  **Build the application:**
+    Required environment variables:
+    - `DISCORD_WEBHOOK_URL`: Discord webhook URL for notifications
+    - `GEMINI_API_KEY`: Google Gemini API key for AI summarization
+
+    Optional environment variables:
+    - `GITHUB_TOKEN`: GitHub personal access token (recommended for higher rate limits)
+    - `TARGET_LANGUAGE`: Language filter (e.g., `rust`, `python`, `javascript`)
+    - `LOG_LEVEL`: Logging level (default: `info`)
+
+    📖 **For detailed setup instructions, see [docs/SETUP_DEV.md](docs/SETUP_DEV.md)**
+
+3.  **Test the scraper:**
+    ```bash
+    # Test scraping GitHub Trending
+    cargo run --example test_scraper
+
+    # Test with language filter
+    cargo run --example test_scraper -- rust
+    ```
+
+4.  **Build the application:**
     ```bash
     cargo build --release
     ```
 
-4.  **Run the application:**
+5.  **Run the application:**
     ```bash
     ./target/release/github-trending-summary
     ```
@@ -64,13 +85,33 @@ This project adopts the **Hexagonal Architecture** (also known as Ports and Adap
 - **Integration Tests**: Place integration tests in the `tests/` directory. These tests should cover the interaction between different components, especially the application and infrastructure layers. Use mocks for external services where appropriate.
 - All new features should be accompanied by relevant tests.
 
-## 5. Roadmap
+## 5. Project Status
 
-- [ ] Implement GitHub scraper in the `infrastructure` layer.
-- [ ] Implement Gemini AI summarizer in the `infrastructure` layer.
-- [ ] Implement Discord notifier in the `infrastructure` layer.
-- [ ] Implement the main use case in the `application` layer.
-- [ ] Add robust error handling and logging throughout the application.
-- [ ] Set up a scheduler in the `presentation` layer to run the process daily.
-- [ ] Add support for more summarization models.
-- [ ] Add more configuration options (e.g., summary format, notification frequency).
+### Completed ✅
+- [x] Domain layer entities and repository traits
+- [x] Application layer use case structure
+- [x] Infrastructure layer configuration and logging
+- [x] **GitHub Trending scraper implementation**
+  - Complete with comprehensive unit and integration tests
+  - Resilient CSS selector strategy with fallbacks
+  - Full error handling and logging
+  - See [docs/SCRAPING_IMPLEMENTATION.md](docs/SCRAPING_IMPLEMENTATION.md) for details
+
+### In Progress 🚧
+- [ ] Implement Gemini AI summarizer in the `infrastructure` layer
+- [ ] Implement Discord notifier in the `infrastructure` layer
+- [ ] Wire up the main use case with all components
+
+### Planned 📋
+- [ ] Set up a scheduler in the `presentation` layer to run the process daily
+- [ ] Add support for more summarization models
+- [ ] Add more configuration options (e.g., summary format, notification frequency)
+- [ ] Implement caching mechanism for rate limit optimization
+- [ ] Add retry logic with exponential backoff
+
+## 6. Documentation
+
+- **[Quick Start](docs/QUICK_START.md)**: 5-minute setup guide
+- **[Setup Guide](docs/SETUP_DEV.md)**: Detailed development environment setup
+- **[Environment Files](docs/ENV_FILES.md)**: Environment file management and security best practices
+- **[Scraping Implementation](docs/SCRAPING_IMPLEMENTATION.md)**: GitHub Trending scraper technical details

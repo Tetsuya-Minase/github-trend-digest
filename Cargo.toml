@@ -27,12 +27,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # --- Configuration ---
 config = { version = "0.14", features = ["toml"] }
+dotenvy = "0.15"
+
+# --- Async Traits ---
+async-trait = "0.1"
 
 
 [dev-dependencies]
 # --- Testing ---
 tokio-test = "0.4"
 mockall = "0.13"
-wiremock = "0.6" # For mocking HTTP requests in tests
 rstest = "0.21"
 insta = "1.39"

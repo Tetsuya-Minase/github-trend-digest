@@ -43,7 +43,7 @@ impl Repository {
     ///
     /// # Examples
     /// ```
-    /// use github_trending_summary::domain::entities::Repository;
+    /// use github_trending_summary::Repository;
     ///
     /// let repo = Repository::new(
     ///     "rust".to_string(),

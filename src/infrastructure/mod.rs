@@ -5,7 +5,9 @@
 /// and infrastructure concerns.
 pub mod config;
 pub mod logging;
+pub mod scraper;
 
 // Re-export commonly used types
 pub use config::AppConfig;
 pub use logging::init_logging;
+pub use scraper::TrendingScraperClient;

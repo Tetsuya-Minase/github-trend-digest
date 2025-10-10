@@ -36,7 +36,8 @@ use crate::domain::{
 /// O(n) for storing n repositories and their summaries in memory
 pub struct FetchAndSummarizeTrendingUseCase {
     trending_repository: Arc<dyn TrendingRepository>,
-    #[allow(dead_code)] // TODO: Use this field in future iterations. Track usage in issue #<issue-number> or remove if not needed.
+    // TODO: Use this field in future iterations. Track usage in issue #<issue-number> or remove if not needed.
+    #[allow(dead_code)]
     github_api_client: Arc<dyn GithubApiClient>,
     ai_summarizer: Arc<dyn AiSummarizer>,
     notification_sender: Arc<dyn NotificationSender>,

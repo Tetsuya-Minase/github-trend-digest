@@ -9,8 +9,16 @@
 .vs/
 
 # Environment variables
+# Ignore actual environment files with sensitive data
 .env
-.env.*
+.env.local
+.env.*.local
+.env.dev
+.env.production
+.env.staging
+
+# Allow template/example files to be committed
+# These files should NOT contain real API keys or secrets
 !.env.example
 
 # Sensitive credentials

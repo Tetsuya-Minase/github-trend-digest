@@ -106,10 +106,9 @@ impl TrendingScraperClient {
     /// - `Ok(String)`: HTML content of the page
     /// - `Err(AppError)`: Network error or HTTP error
     async fn fetch_html(&self, language: Option<&str>) -> AppResult<String> {
-        let url = if let Some(lang) = language {
-            format!("{}/trending?spoken_language_code={}", self.base_url, lang)
-        } else {
-            format!("{}/trending", self.base_url)
+        let url = match language {
+            Some(lang) => format!("{}/trending/{}", self.base_url, lang),
+            None => format!("{}/trending", self.base_url),
         };
 
         info!("Fetching trending page: {}", url);

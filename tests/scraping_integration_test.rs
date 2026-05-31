@@ -116,9 +116,7 @@ async fn test_fetch_trending_with_language_filter() {
 
     // Configure mock response for language-filtered request
     let mock = server.mock(|when, then| {
-        when.method(GET)
-            .path("/trending")
-            .query_param("spoken_language_code", "rust");
+        when.method(GET).path("/trending/rust");
         then.status(200)
             .header("content-type", "text/html")
             .body(MOCK_TRENDING_HTML);

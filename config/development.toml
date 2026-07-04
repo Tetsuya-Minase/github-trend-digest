@@ -1,0 +1,8 @@
+# config/development.toml
+# Development environment overrides
+
+# Target language filter for trending repositories (optional)
+target_language = ""
+
+# Logging level for development
+log_level = "debug"

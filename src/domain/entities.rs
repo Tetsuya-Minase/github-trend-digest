@@ -230,6 +230,57 @@ impl TrendingSummary {
     pub fn target_languages(&self) -> &[String] {
         &self.target_languages
     }
+
+    /// Formats the trending summary as a markdown string.
+    ///
+    /// This formatted string is suitable for sending as notification content
+    /// (e.g. Discord messages).
+    pub fn format_markdown(&self) -> String {
+        let mut lines = Vec::new();
+
+        // Title and star count
+        lines.push(format!(
+            "**[{}]({})** (★{})",
+            self.repository.full_name(),
+            self.repository.url(),
+            self.repository.stars()
+        ));
+
+        // Primary Language
+        if let Some(lang) = self.repository.language() {
+            lines.push(format!("Language: {}", lang));
+        }
+
+        // Description
+        if let Some(desc) = self.repository.description() {
+            lines.push(format!("> {}", desc));
+        }
+
+        lines.push(String::new()); // blank line
+
+        // AI Summary
+        lines.push(format!("**AI Summary:** {}", self.ai_summary));
+
+        // Use Cases
+        if !self.use_cases.is_empty() {
+            lines.push(String::new());
+            lines.push("**Key Use Cases:**".to_string());
+            for use_case in &self.use_cases {
+                lines.push(format!("- {}", use_case));
+            }
+        }
+
+        // Target Languages
+        if !self.target_languages.is_empty() {
+            lines.push(String::new());
+            lines.push("**Target Languages:**".to_string());
+            for target_lang in &self.target_languages {
+                lines.push(format!("- {}", target_lang));
+            }
+        }
+
+        lines.join("\n")
+    }
 }
 
 #[cfg(test)]
@@ -434,6 +485,39 @@ mod tests {
             assert_eq!(summary.ai_summary(), "Summary");
             assert_eq!(summary.use_cases(), &["Use case 1".to_string()]);
             assert_eq!(summary.target_languages(), &["Rust".to_string()]);
+        }
+
+        #[test]
+        fn test_format_markdown() {
+            let repo = Repository::new(
+                "rust".to_string(),
+                "rust-lang".to_string(),
+                "https://github.com/rust-lang/rust".to_string(),
+                Some("A language empowering everyone".to_string()),
+                80000,
+                Some("Rust".to_string()),
+                vec![],
+            )
+            .unwrap();
+
+            let summary = TrendingSummary::new(
+                repo,
+                "A systems programming language.".to_string(),
+                vec!["System programming".to_string(), "Web services".to_string()],
+                vec!["Rust".to_string(), "WebAssembly".to_string()],
+            )
+            .unwrap();
+
+            let markdown = summary.format_markdown();
+
+            assert!(markdown.contains("**[rust-lang/rust](https://github.com/rust-lang/rust)** (★80000)"));
+            assert!(markdown.contains("Language: Rust"));
+            assert!(markdown.contains("A language empowering everyone"));
+            assert!(markdown.contains("**AI Summary:** A systems programming language."));
+            assert!(markdown.contains("- System programming"));
+            assert!(markdown.contains("- Web services"));
+            assert!(markdown.contains("- Rust"));
+            assert!(markdown.contains("- WebAssembly"));
         }
     }
 }

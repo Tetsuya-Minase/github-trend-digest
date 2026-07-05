@@ -1,0 +1,8 @@
+# config/production.toml
+# Production environment overrides
+
+# Target language filter for trending repositories (optional)
+target_language = ""
+
+# Logging level for production
+log_level = "info"

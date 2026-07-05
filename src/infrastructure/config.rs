@@ -47,7 +47,13 @@ impl AppConfig {
         // Load .env file if present (ignore error if not found)
         let _ = dotenvy::dotenv();
 
-        // Load required fields
+        let run_mode = std::env::var("RUN_MODE").unwrap_or_else(|_| "development".to_string());
+
+        let mut builder = config::Config::builder()
+            .add_source(config::File::with_name("config/default").required(false))
+            .add_source(config::File::with_name(&format!("config/{}", run_mode)).required(false));
+
+        // Required secret fields (must be loaded from environment variables)
         let discord_webhook_url = std::env::var("DISCORD_WEBHOOK_URL").map_err(|_| {
             AppError::ConfigError(
                 "DISCORD_WEBHOOK_URL environment variable is required".to_string(),
@@ -58,18 +64,45 @@ impl AppConfig {
             AppError::ConfigError("GEMINI_API_KEY environment variable is required".to_string())
         })?;
 
-        // Load optional fields
-        let github_token = std::env::var("GITHUB_TOKEN").ok();
-        let target_language = std::env::var("TARGET_LANGUAGE").ok();
-        let log_level = std::env::var("LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+        builder = builder
+            .set_override("discord_webhook_url", discord_webhook_url)
+            .map_err(|e| AppError::ConfigError(e.to_string()))?;
+        builder = builder
+            .set_override("gemini_api_key", gemini_api_key)
+            .map_err(|e| AppError::ConfigError(e.to_string()))?;
 
-        let config = Self {
-            discord_webhook_url,
-            gemini_api_key,
-            github_token,
-            target_language,
-            log_level,
-        };
+        // Optional secret GITHUB_TOKEN (from environment variable only)
+        if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+            if !token.trim().is_empty() {
+                builder = builder
+                    .set_override("github_token", token)
+                    .map_err(|e| AppError::ConfigError(e.to_string()))?;
+            }
+        }
+
+        // Optional fields from environment overrides
+        if let Ok(lang) = std::env::var("TARGET_LANGUAGE") {
+            if !lang.trim().is_empty() {
+                builder = builder
+                    .set_override("target_language", lang)
+                    .map_err(|e| AppError::ConfigError(e.to_string()))?;
+            }
+        }
+        if let Ok(level) = std::env::var("LOG_LEVEL") {
+            if !level.trim().is_empty() {
+                builder = builder
+                    .set_override("log_level", level)
+                    .map_err(|e| AppError::ConfigError(e.to_string()))?;
+            }
+        }
+
+        let s = builder
+            .build()
+            .map_err(|e| AppError::ConfigError(format!("Failed to build configuration: {}", e)))?;
+
+        let config: Self = s
+            .try_deserialize()
+            .map_err(|e| AppError::ConfigError(format!("Failed to parse configuration: {}", e)))?;
 
         config.validate()?;
 
@@ -309,14 +342,31 @@ mod tests {
         assert!(config.validate().is_ok());
     }
 
+    use std::sync::Mutex;
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
     #[test]
     fn test_from_env_missing_required_vars() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        // Backup existing env vars
+        let orig_webhook = std::env::var("DISCORD_WEBHOOK_URL").ok();
+        let orig_gemini = std::env::var("GEMINI_API_KEY").ok();
+
         // Clear environment variables
         std::env::remove_var("DISCORD_WEBHOOK_URL");
         std::env::remove_var("GEMINI_API_KEY");
 
         let result = AppConfig::from_env();
         assert!(result.is_err());
+
+        // Restore
+        if let Some(val) = orig_webhook {
+            std::env::set_var("DISCORD_WEBHOOK_URL", val);
+        }
+        if let Some(val) = orig_gemini {
+            std::env::set_var("GEMINI_API_KEY", val);
+        }
     }
 
     #[test]
@@ -330,5 +380,57 @@ mod tests {
         };
 
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_from_env_loads_by_run_mode() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        // Backup existing env vars
+        let orig_run_mode = std::env::var("RUN_MODE").ok();
+        let orig_webhook = std::env::var("DISCORD_WEBHOOK_URL").ok();
+        let orig_gemini = std::env::var("GEMINI_API_KEY").ok();
+
+        // Setup environment variables for test
+        std::env::set_var(
+            "DISCORD_WEBHOOK_URL",
+            "https://discord.com/api/webhooks/test-env",
+        );
+        std::env::set_var("GEMINI_API_KEY", "test-gemini-key");
+
+        // 1. Test development mode (should have log_level = "debug" from development.toml)
+        std::env::set_var("RUN_MODE", "development");
+        let config = AppConfig::from_env().unwrap();
+        assert_eq!(
+            config.discord_webhook_url(),
+            "https://discord.com/api/webhooks/test-env"
+        );
+        assert_eq!(config.log_level(), "debug");
+
+        // 2. Test production mode (should have log_level = "info" from production.toml)
+        std::env::set_var("RUN_MODE", "production");
+        let config = AppConfig::from_env().unwrap();
+        assert_eq!(
+            config.discord_webhook_url(),
+            "https://discord.com/api/webhooks/test-env"
+        );
+        assert_eq!(config.log_level(), "info");
+
+        // Cleanup
+        if let Some(val) = orig_run_mode {
+            std::env::set_var("RUN_MODE", val);
+        } else {
+            std::env::remove_var("RUN_MODE");
+        }
+        if let Some(val) = orig_webhook {
+            std::env::set_var("DISCORD_WEBHOOK_URL", val);
+        } else {
+            std::env::remove_var("DISCORD_WEBHOOK_URL");
+        }
+        if let Some(val) = orig_gemini {
+            std::env::set_var("GEMINI_API_KEY", val);
+        } else {
+            std::env::remove_var("GEMINI_API_KEY");
+        }
     }
 }

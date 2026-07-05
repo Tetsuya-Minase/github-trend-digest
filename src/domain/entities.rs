@@ -510,7 +510,8 @@ mod tests {
 
             let markdown = summary.format_markdown();
 
-            assert!(markdown.contains("**[rust-lang/rust](https://github.com/rust-lang/rust)** (★80000)"));
+            assert!(markdown
+                .contains("**[rust-lang/rust](https://github.com/rust-lang/rust)** (★80000)"));
             assert!(markdown.contains("Language: Rust"));
             assert!(markdown.contains("A language empowering everyone"));
             assert!(markdown.contains("**AI Summary:** A systems programming language."));

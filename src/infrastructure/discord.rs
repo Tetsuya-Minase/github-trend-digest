@@ -25,7 +25,10 @@ impl DiscordNotificationSender {
 impl NotificationSender for DiscordNotificationSender {
     async fn send(&self, summary: &TrendingSummary) -> AppResult<()> {
         let content = summary.format_markdown();
-        info!("Sending notification to Discord for {}", summary.repository().full_name());
+        info!(
+            "Sending notification to Discord for {}",
+            summary.repository().full_name()
+        );
 
         // Discord limit is 2000 characters
         let content = if content.len() > 2000 {
@@ -40,7 +43,9 @@ impl NotificationSender for DiscordNotificationSender {
             "content": content
         });
 
-        let response = self.client.post(&self.webhook_url)
+        let response = self
+            .client
+            .post(&self.webhook_url)
             .json(&payload)
             .send()
             .await
@@ -51,7 +56,10 @@ impl NotificationSender for DiscordNotificationSender {
 
         let status = response.status();
         if !status.is_success() {
-            let error_msg = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_msg = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
             error!("Discord API error: status={}, body={}", status, error_msg);
             return Err(AppError::NotificationError(format!(
                 "Discord API error {}: {}",
@@ -123,8 +131,7 @@ mod tests {
             when.method(POST)
                 .path("/")
                 .header("content-type", "application/json");
-            then.status(400)
-                .body("Bad Request");
+            then.status(400).body("Bad Request");
         });
 
         let sender = DiscordNotificationSender {
@@ -143,13 +150,7 @@ mod tests {
         )
         .unwrap();
 
-        let summary = TrendingSummary::new(
-            repo,
-            "Summary".to_string(),
-            vec![],
-            vec![],
-        )
-        .unwrap();
+        let summary = TrendingSummary::new(repo, "Summary".to_string(), vec![], vec![]).unwrap();
 
         let result = sender.send(&summary).await;
 
@@ -175,7 +176,9 @@ mod tests {
                 .header("content-type", "application/json")
                 .is_true(|req| {
                     let body_bytes = req.body();
-                    if let Ok(body) = serde_json::from_slice::<serde_json::Value>(body_bytes.as_ref()) {
+                    if let Ok(body) =
+                        serde_json::from_slice::<serde_json::Value>(body_bytes.as_ref())
+                    {
                         if let Some(content) = body.get("content").and_then(|c| c.as_str()) {
                             return content.len() == 2000 && content.ends_with("...");
                         }
@@ -204,13 +207,7 @@ mod tests {
         // Create a very long AI summary (more than 2000 characters)
         let long_summary_text = "A".repeat(2500);
 
-        let summary = TrendingSummary::new(
-            repo,
-            long_summary_text,
-            vec![],
-            vec![],
-        )
-        .unwrap();
+        let summary = TrendingSummary::new(repo, long_summary_text, vec![], vec![]).unwrap();
 
         let result = sender.send(&summary).await;
 

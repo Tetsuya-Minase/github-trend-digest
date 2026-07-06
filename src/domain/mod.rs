@@ -1,7 +1,7 @@
-/// Domain layer containing business logic and entities.
-///
-/// This layer is the core of the application and is independent of
-/// infrastructure concerns. It follows the principles of hexagonal architecture.
+//! Domain layer containing business logic and entities.
+//!
+//! This layer is the core of the application and is independent of
+//! infrastructure concerns. It follows the principles of hexagonal architecture.
 pub mod entities;
 pub mod errors;
 pub mod repositories;

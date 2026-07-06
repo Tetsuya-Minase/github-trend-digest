@@ -1,4 +1,4 @@
-/// Discord Webhook notification sender implementation.
+//! Discord Webhook notification sender implementation.
 use async_trait::async_trait;
 use reqwest::Client;
 use tracing::{debug, error, info};
@@ -13,11 +13,20 @@ pub struct DiscordNotificationSender {
 
 impl DiscordNotificationSender {
     /// Creates a new DiscordNotificationSender instance.
-    pub fn new(webhook_url: String) -> Self {
-        Self {
+    ///
+    /// # Returns
+    /// - `Ok(DiscordNotificationSender)`: Successfully created sender
+    /// - `Err(AppError)`: Failed to build the HTTP client
+    pub fn new(webhook_url: String) -> AppResult<Self> {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| AppError::InternalError(format!("Failed to create HTTP client: {}", e)))?;
+
+        Ok(Self {
             webhook_url,
-            client: Client::new(),
-        }
+            client,
+        })
     }
 }
 
@@ -78,6 +87,15 @@ mod tests {
     use super::*;
     use crate::domain::Repository;
     use httpmock::prelude::*;
+
+    #[test]
+    fn test_new_creates_sender() {
+        // Given/When: creating a sender with a valid webhook URL
+        let result = DiscordNotificationSender::new("https://example.com/webhook".to_string());
+
+        // Then: construction succeeds
+        assert!(result.is_ok());
+    }
 
     #[tokio::test]
     async fn test_discord_send_success() {

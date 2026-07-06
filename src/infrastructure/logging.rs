@@ -1,7 +1,7 @@
-/// Logging configuration and initialization.
-///
-/// This module sets up structured logging using the tracing crate,
-/// with configurable log levels and output formats.
+//! Logging configuration and initialization.
+//!
+//! This module sets up structured logging using the tracing crate,
+//! with configurable log levels and output formats.
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use crate::domain::AppResult;

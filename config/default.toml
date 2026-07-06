@@ -17,12 +17,24 @@ languages = ["rust", ""]
 # --- Summarization Settings ---
 # Configuration for the AI summarization service.
 [summarizer]
-# The prompt to use when asking the AI to summarize repositories.
-# Placeholders like {{language}} and {{repositories}} can be used.
-prompt_template = """
-Please provide a summary of the following trending repositories for the language '{{language}}'.
-Highlight key features, potential use cases, and why they might be trending.
+# Gemini model name used for summarization.
+model = "gemini-2.5-flash"
 
-Repositories:
-{{repositories}}
+# Prompt templates. "{{repository}}" is replaced with the repository info block.
+summarize_prompt = """
+以下のGitHubリポジトリについて、何をするものか・なぜ注目されているかを日本語で3文以内で要約してください。要約本文のみを出力してください。
+
+{{repository}}
+"""
+
+use_cases_prompt = """
+以下のGitHubリポジトリの主要なユースケースを日本語で最大5件、1行に1件、行頭に "- " を付けた箇条書きのみで出力してください。
+
+{{repository}}
+"""
+
+target_languages_prompt = """
+以下のGitHubリポジトリが主な対象とするプログラミング言語を最大5件、1行に1言語、行頭に "- " を付けた箇条書きのみで出力してください。
+
+{{repository}}
 """

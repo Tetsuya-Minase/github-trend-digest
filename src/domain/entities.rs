@@ -1,7 +1,7 @@
-/// Domain entities representing the core business objects.
-///
-/// These entities are immutable and contain validation logic
-/// to ensure data integrity throughout the application lifecycle.
+//! Domain entities representing the core business objects.
+//!
+//! These entities are immutable and contain validation logic
+//! to ensure data integrity throughout the application lifecycle.
 use serde::{Deserialize, Serialize};
 
 /// Represents a GitHub repository with its metadata.

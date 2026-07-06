@@ -1,7 +1,7 @@
-/// Application-wide error types.
-///
-/// This module defines a comprehensive error hierarchy using thiserror
-/// for better error handling and propagation throughout the application.
+//! Application-wide error types.
+//!
+//! This module defines a comprehensive error hierarchy using thiserror
+//! for better error handling and propagation throughout the application.
 use thiserror::Error;
 
 /// Main application error type encompassing all possible error conditions.

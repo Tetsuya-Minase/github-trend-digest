@@ -422,6 +422,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_gemini_api_error_server_error() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-2.5-flash:generateContent");
+            then.status(500).body("Internal error");
+        });
+
+        let client = create_test_client(server.base_url());
+        let repo = create_test_repository();
+
+        let result = client.summarize(&repo).await;
+
+        mock.assert();
+        match result.unwrap_err() {
+            AppError::AiServiceError(msg) => {
+                assert!(msg.contains("server error 500"));
+            }
+            other => panic!("Expected AiServiceError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_gemini_whitespace_only_text_is_empty_response() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-2.5-flash:generateContent");
+            then.status(200).json_body(serde_json::json!({
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [ { "text": "  \n " } ],
+                            "role": "model"
+                        }
+                    }
+                ]
+            }));
+        });
+
+        let client = create_test_client(server.base_url());
+        let repo = create_test_repository();
+
+        let result = client.summarize(&repo).await;
+
+        mock.assert();
+        match result.unwrap_err() {
+            AppError::AiServiceError(msg) => {
+                assert!(msg.contains("empty response"));
+            }
+            other => panic!("Expected AiServiceError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_gemini_invalid_json_response() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-2.5-flash:generateContent");
+            then.status(200).body("not a json");
+        });
+
+        let client = create_test_client(server.base_url());
+        let repo = create_test_repository();
+
+        let result = client.summarize(&repo).await;
+
+        mock.assert();
+        match result.unwrap_err() {
+            AppError::AiServiceError(msg) => {
+                assert!(msg.contains("Failed to parse Gemini response"));
+            }
+            other => panic!("Expected AiServiceError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn test_gemini_empty_candidates() {
         let server = MockServer::start();
 

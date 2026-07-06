@@ -484,6 +484,23 @@ mod tests {
             .target_languages_prompt
             .contains("{{repository}}"));
 
+        // The TOML values must stay identical to the Rust-side defaults so that
+        // environments without config/ behave the same as configured ones.
+        let defaults = SummarizerConfig::default();
+        assert_eq!(config.summarizer().model, defaults.model);
+        assert_eq!(
+            config.summarizer().summarize_prompt,
+            defaults.summarize_prompt
+        );
+        assert_eq!(
+            config.summarizer().use_cases_prompt,
+            defaults.use_cases_prompt
+        );
+        assert_eq!(
+            config.summarizer().target_languages_prompt,
+            defaults.target_languages_prompt
+        );
+
         // Cleanup
         if let Some(val) = orig_run_mode {
             std::env::set_var("RUN_MODE", val);

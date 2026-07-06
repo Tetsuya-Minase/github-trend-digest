@@ -1,8 +1,8 @@
-/// GitHub REST API client implementation.
-///
-/// This module implements the `GithubApiClient` trait using the GitHub REST API
-/// to retrieve detailed repository information (topics, accurate star counts, etc.)
-/// and to verify API credentials.
+//! GitHub REST API client implementation.
+//!
+//! This module implements the `GithubApiClient` trait using the GitHub REST API
+//! to retrieve detailed repository information (topics, accurate star counts, etc.)
+//! and to verify API credentials.
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
@@ -89,6 +89,58 @@ impl GithubApiClientImpl {
 
         request
     }
+
+    /// Maps a non-success GitHub API response to an AppError.
+    ///
+    /// Consumes the response to include its body (the GitHub API `message`
+    /// field) in the error for diagnosability. A 403 is reported as a rate
+    /// limit error only when the `x-ratelimit-remaining` header is exhausted;
+    /// otherwise (SAML enforcement, insufficient scope, etc.) it is reported
+    /// as forbidden with the API message.
+    async fn error_for_status(
+        status: reqwest::StatusCode,
+        response: reqwest::Response,
+        owner: &str,
+        name: &str,
+    ) -> AppError {
+        let rate_limit_exhausted = response
+            .headers()
+            .get("x-ratelimit-remaining")
+            .and_then(|v| v.to_str().ok())
+            == Some("0");
+        let body_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        error!(
+            "GitHub API error fetching {}/{}: {} - {}",
+            owner, name, status, body_text
+        );
+
+        match status {
+            reqwest::StatusCode::NOT_FOUND => {
+                AppError::GithubApiError(format!("Repository not found: {}/{}", owner, name))
+            }
+            reqwest::StatusCode::TOO_MANY_REQUESTS => AppError::GithubApiError(format!(
+                "GitHub API rate limit exceeded: status {}",
+                status.as_u16()
+            )),
+            reqwest::StatusCode::FORBIDDEN if rate_limit_exhausted => AppError::GithubApiError(
+                format!("GitHub API rate limit exceeded: status {}", status.as_u16()),
+            ),
+            reqwest::StatusCode::FORBIDDEN => {
+                AppError::GithubApiError(format!("GitHub API access forbidden: {}", body_text))
+            }
+            reqwest::StatusCode::UNAUTHORIZED => {
+                AppError::GithubApiError("Unauthorized: invalid GitHub token".to_string())
+            }
+            _ => AppError::GithubApiError(format!(
+                "GitHub API returned status {}: {}",
+                status.as_u16(),
+                body_text
+            )),
+        }
+    }
 }
 
 /// DTO for deserializing the GitHub API repository response.
@@ -120,25 +172,7 @@ impl GithubApiClient for GithubApiClientImpl {
 
         let status = response.status();
         if !status.is_success() {
-            error!("GitHub API error fetching {}/{}: {}", owner, name, status);
-            return Err(match status {
-                reqwest::StatusCode::NOT_FOUND => {
-                    AppError::GithubApiError(format!("Repository not found: {}/{}", owner, name))
-                }
-                reqwest::StatusCode::FORBIDDEN | reqwest::StatusCode::TOO_MANY_REQUESTS => {
-                    AppError::GithubApiError(format!(
-                        "GitHub API rate limit exceeded: status {}",
-                        status.as_u16()
-                    ))
-                }
-                reqwest::StatusCode::UNAUTHORIZED => {
-                    AppError::GithubApiError("Unauthorized: invalid GitHub token".to_string())
-                }
-                _ => AppError::GithubApiError(format!(
-                    "GitHub API returned status {}",
-                    status.as_u16()
-                )),
-            });
+            return Err(Self::error_for_status(status, response, owner, name).await);
         }
 
         let body: GithubRepoResponse = response.json().await.map_err(|e| {
@@ -155,7 +189,7 @@ impl GithubApiClient for GithubApiClientImpl {
             body.language,
             body.topics,
         )
-        .map_err(AppError::ParseError)
+        .map_err(|e| AppError::ValidationError(format!("Invalid repository data: {}", e)))
     }
 
     /// Checks if the API client has valid credentials.
@@ -376,12 +410,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_repository_details_rate_limited() {
-        // Given: a mock server that returns 403 (rate limit exceeded)
+        // Given: a mock server that returns 403 with an exhausted rate limit header
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
             when.method(GET).path("/repos/owner/repo");
             then.status(403)
                 .header("content-type", "application/json")
+                .header("x-ratelimit-remaining", "0")
                 .body(r#"{"message":"API rate limit exceeded"}"#);
         });
 
@@ -395,6 +430,228 @@ mod tests {
         match result {
             Err(AppError::GithubApiError(msg)) => {
                 assert!(msg.contains("rate limit"), "unexpected message: {}", msg)
+            }
+            other => panic!("Expected GithubApiError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_repository_details_too_many_requests() {
+        // Given: a mock server that returns 429
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/repos/owner/repo");
+            then.status(429)
+                .header("content-type", "application/json")
+                .body(r#"{"message":"You have exceeded a secondary rate limit"}"#);
+        });
+
+        let client = GithubApiClientImpl::with_base_url(server.base_url(), None).unwrap();
+
+        // When: fetching repository details while throttled
+        let result = client.get_repository_details("owner", "repo").await;
+
+        // Then: a GithubApiError whose message contains "rate limit" is returned
+        mock.assert();
+        match result {
+            Err(AppError::GithubApiError(msg)) => {
+                assert!(msg.contains("rate limit"), "unexpected message: {}", msg)
+            }
+            other => panic!("Expected GithubApiError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_repository_details_forbidden_not_rate_limited() {
+        // Given: a mock server that returns 403 without an exhausted rate limit
+        // header (e.g., SAML enforcement or insufficient token scope)
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/repos/owner/repo");
+            then.status(403)
+                .header("content-type", "application/json")
+                .header("x-ratelimit-remaining", "42")
+                .body(r#"{"message":"Resource protected by organization SAML enforcement"}"#);
+        });
+
+        let client = GithubApiClientImpl::with_base_url(server.base_url(), None).unwrap();
+
+        // When: fetching repository details
+        let result = client.get_repository_details("owner", "repo").await;
+
+        // Then: the error is reported as forbidden (not rate limit) and
+        // includes the API message for diagnosability
+        mock.assert();
+        match result {
+            Err(AppError::GithubApiError(msg)) => {
+                assert!(msg.contains("forbidden"), "unexpected message: {}", msg);
+                assert!(
+                    msg.contains("SAML enforcement"),
+                    "unexpected message: {}",
+                    msg
+                );
+            }
+            other => panic!("Expected GithubApiError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_repository_details_unauthorized() {
+        // Given: a mock server that returns 401
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/repos/owner/repo");
+            then.status(401)
+                .header("content-type", "application/json")
+                .body(r#"{"message":"Bad credentials"}"#);
+        });
+
+        let client =
+            GithubApiClientImpl::with_base_url(server.base_url(), Some("bad-token".to_string()))
+                .unwrap();
+
+        // When: fetching repository details with an invalid token
+        let result = client.get_repository_details("owner", "repo").await;
+
+        // Then: a GithubApiError containing "Unauthorized" is returned
+        mock.assert();
+        match result {
+            Err(AppError::GithubApiError(msg)) => {
+                assert!(msg.contains("Unauthorized"), "unexpected message: {}", msg)
+            }
+            other => panic!("Expected GithubApiError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_repository_details_server_error_includes_body() {
+        // Given: a mock server that returns 500 with an error message body
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/repos/owner/repo");
+            then.status(500)
+                .header("content-type", "application/json")
+                .body(r#"{"message":"Internal boom"}"#);
+        });
+
+        let client = GithubApiClientImpl::with_base_url(server.base_url(), None).unwrap();
+
+        // When: fetching repository details
+        let result = client.get_repository_details("owner", "repo").await;
+
+        // Then: the error includes both the status code and the response body
+        mock.assert();
+        match result {
+            Err(AppError::GithubApiError(msg)) => {
+                assert!(msg.contains("500"), "unexpected message: {}", msg);
+                assert!(msg.contains("Internal boom"), "unexpected message: {}", msg);
+            }
+            other => panic!("Expected GithubApiError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_repository_details_invalid_json() {
+        // Given: a mock server that returns a non-JSON body with status 200
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/repos/owner/repo");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body("not json");
+        });
+
+        let client = GithubApiClientImpl::with_base_url(server.base_url(), None).unwrap();
+
+        // When: fetching repository details
+        let result = client.get_repository_details("owner", "repo").await;
+
+        // Then: a ParseError is returned
+        mock.assert();
+        assert!(
+            matches!(result, Err(AppError::ParseError(_))),
+            "Expected ParseError, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_repository_details_invalid_domain_data() {
+        // Given: a mock server response that is valid JSON but violates
+        // domain invariants (empty repository name)
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/repos/owner/repo");
+            then.status(200)
+                .header("content-type", "application/json")
+                .body(
+                    r#"{
+                        "name": "",
+                        "owner": { "login": "owner" },
+                        "html_url": "https://github.com/owner/repo",
+                        "description": null,
+                        "stargazers_count": 0,
+                        "language": null,
+                        "topics": []
+                    }"#,
+                );
+        });
+
+        let client = GithubApiClientImpl::with_base_url(server.base_url(), None).unwrap();
+
+        // When: fetching repository details
+        let result = client.get_repository_details("owner", "repo").await;
+
+        // Then: a ValidationError is returned (consistent with the scraper impl)
+        mock.assert();
+        match result {
+            Err(AppError::ValidationError(msg)) => assert!(
+                msg.contains("Invalid repository data"),
+                "unexpected message: {}",
+                msg
+            ),
+            other => panic!("Expected ValidationError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_repository_details_network_error() {
+        // Given: a base URL that refuses connections (reserved port 1)
+        let client =
+            GithubApiClientImpl::with_base_url("http://127.0.0.1:1".to_string(), None).unwrap();
+
+        // When: fetching repository details
+        let result = client.get_repository_details("owner", "repo").await;
+
+        // Then: a NetworkError is returned via the From<reqwest::Error> conversion
+        assert!(
+            matches!(result, Err(AppError::NetworkError(_))),
+            "Expected NetworkError, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_credentials_server_error() {
+        // Given: a mock server that returns 500 for GET /rate_limit
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/rate_limit");
+            then.status(500)
+                .header("content-type", "application/json")
+                .body(r#"{"message":"Internal error"}"#);
+        });
+
+        let client = GithubApiClientImpl::with_base_url(server.base_url(), None).unwrap();
+
+        // When: verifying credentials
+        let result = client.verify_credentials().await;
+
+        // Then: a GithubApiError containing the status code is returned
+        mock.assert();
+        match result {
+            Err(AppError::GithubApiError(msg)) => {
+                assert!(msg.contains("500"), "unexpected message: {}", msg)
             }
             other => panic!("Expected GithubApiError, got {:?}", other),
         }

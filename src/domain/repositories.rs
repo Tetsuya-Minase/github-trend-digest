@@ -1,8 +1,8 @@
-/// Repository trait definitions for the domain layer.
-///
-/// These traits define the contracts that infrastructure implementations must satisfy.
-/// They follow the Dependency Inversion Principle (DIP) from SOLID,
-/// allowing the domain layer to remain independent of infrastructure details.
+//! Repository trait definitions for the domain layer.
+//!
+//! These traits define the contracts that infrastructure implementations must satisfy.
+//! They follow the Dependency Inversion Principle (DIP) from SOLID,
+//! allowing the domain layer to remain independent of infrastructure details.
 use async_trait::async_trait;
 
 use super::entities::{Repository, TrendingSummary};
@@ -63,9 +63,12 @@ pub trait GithubApiClient: Send + Sync {
 
     /// Checks if the API client has valid credentials.
     ///
+    /// A client configured without credentials verifies successfully,
+    /// since unauthenticated API access is permitted (with lower rate limits).
+    ///
     /// # Returns
-    /// - `Ok(())`: Credentials are valid
-    /// - `Err(AppError)`: Invalid or missing credentials
+    /// - `Ok(())`: Credentials are valid, or no credentials are configured
+    /// - `Err(AppError)`: Configured credentials are invalid
     async fn verify_credentials(&self) -> AppResult<()>;
 }
 

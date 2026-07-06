@@ -1,7 +1,7 @@
-/// Configuration management for the application.
-///
-/// This module handles loading configuration from environment variables
-/// and configuration files, with proper validation and error handling.
+//! Configuration management for the application.
+//!
+//! This module handles loading configuration from environment variables
+//! and configuration files, with proper validation and error handling.
 use serde::Deserialize;
 
 use crate::domain::{AppError, AppResult};

@@ -1,4 +1,4 @@
-/// Main entry point for the GitHub Trending Summary application.
+//! Main entry point for the GitHub Trending Summary application.
 use github_trending_summary::{init_logging, AppConfig};
 
 #[tokio::main]

@@ -1,7 +1,7 @@
-/// GitHub Trending scraper implementation.
-///
-/// This module implements web scraping functionality for fetching trending
-/// repositories from GitHub's trending page.
+//! GitHub Trending scraper implementation.
+//!
+//! This module implements web scraping functionality for fetching trending
+//! repositories from GitHub's trending page.
 use async_trait::async_trait;
 use reqwest::Client;
 use scraper::{Html, Selector};

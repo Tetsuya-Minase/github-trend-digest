@@ -1,8 +1,8 @@
-/// Use cases (application services) for the application layer.
-///
-/// These use cases orchestrate domain objects and repository operations
-/// to implement the application's business logic. They follow the principles
-/// of Clean Architecture and hexagonal architecture.
+//! Use cases (application services) for the application layer.
+//!
+//! These use cases orchestrate domain objects and repository operations
+//! to implement the application's business logic. They follow the principles
+//! of Clean Architecture and hexagonal architecture.
 use std::sync::Arc;
 
 use tracing::{info, warn};

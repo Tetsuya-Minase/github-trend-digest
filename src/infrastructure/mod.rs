@@ -5,6 +5,7 @@
 //! and infrastructure concerns.
 pub mod config;
 pub mod discord;
+pub mod gemini;
 pub mod github;
 pub mod logging;
 pub mod scraper;
@@ -12,6 +13,7 @@ pub mod scraper;
 // Re-export commonly used types
 pub use config::AppConfig;
 pub use discord::DiscordNotificationSender;
+pub use gemini::GeminiClient;
 pub use github::GithubApiClientImpl;
 pub use logging::init_logging;
 pub use scraper::TrendingScraperClient;

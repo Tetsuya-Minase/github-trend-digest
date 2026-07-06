@@ -6,6 +6,54 @@ use serde::Deserialize;
 
 use crate::domain::{AppError, AppResult};
 
+/// Default Gemini model used for summarization.
+const DEFAULT_SUMMARIZER_MODEL: &str = "gemini-2.5-flash";
+
+/// Default prompt template for repository summarization.
+const DEFAULT_SUMMARIZE_PROMPT: &str = "\
+以下のGitHubリポジトリについて、何をするものか・なぜ注目されているかを日本語で3文以内で要約してください。要約本文のみを出力してください。
+
+{{repository}}
+";
+
+/// Default prompt template for use case extraction.
+const DEFAULT_USE_CASES_PROMPT: &str = "\
+以下のGitHubリポジトリの主要なユースケースを日本語で最大5件、1行に1件、行頭に \"- \" を付けた箇条書きのみで出力してください。
+
+{{repository}}
+";
+
+/// Default prompt template for target language identification.
+const DEFAULT_TARGET_LANGUAGES_PROMPT: &str = "\
+以下のGitHubリポジトリが主な対象とするプログラミング言語を最大5件、1行に1言語、行頭に \"- \" を付けた箇条書きのみで出力してください。
+
+{{repository}}
+";
+
+/// Configuration for the AI summarization service.
+///
+/// Holds the Gemini model name and prompt templates for each
+/// `AiSummarizer` method. Templates use the `{{repository}}` placeholder,
+/// which is replaced with a repository info block at request time.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SummarizerConfig {
+    pub model: String,
+    pub summarize_prompt: String,
+    pub use_cases_prompt: String,
+    pub target_languages_prompt: String,
+}
+
+impl Default for SummarizerConfig {
+    fn default() -> Self {
+        Self {
+            model: DEFAULT_SUMMARIZER_MODEL.to_string(),
+            summarize_prompt: DEFAULT_SUMMARIZE_PROMPT.to_string(),
+            use_cases_prompt: DEFAULT_USE_CASES_PROMPT.to_string(),
+            target_languages_prompt: DEFAULT_TARGET_LANGUAGES_PROMPT.to_string(),
+        }
+    }
+}
+
 /// Application configuration structure.
 ///
 /// This struct holds all configuration values needed to run the application.
@@ -29,6 +77,10 @@ pub struct AppConfig {
     github_token: Option<String>,
     target_language: Option<String>,
     log_level: String,
+    // Falls back to defaults when the config/ directory is absent,
+    // since config files are loaded with required(false).
+    #[serde(default)]
+    summarizer: SummarizerConfig,
 }
 
 impl AppConfig {
@@ -171,6 +223,11 @@ impl AppConfig {
     pub fn log_level(&self) -> &str {
         &self.log_level
     }
+
+    /// Returns the summarizer configuration.
+    pub fn summarizer(&self) -> &SummarizerConfig {
+        &self.summarizer
+    }
 }
 
 /// Builder for creating AppConfig for testing purposes.
@@ -184,6 +241,7 @@ pub struct AppConfigBuilder {
     github_token: Option<String>,
     target_language: Option<String>,
     log_level: Option<String>,
+    summarizer: SummarizerConfig,
 }
 
 #[cfg(test)]
@@ -203,6 +261,7 @@ impl AppConfigBuilder {
             github_token: None,
             target_language: None,
             log_level: Some("info".to_string()),
+            summarizer: SummarizerConfig::default(),
         }
     }
 
@@ -236,6 +295,12 @@ impl AppConfigBuilder {
         self
     }
 
+    /// Sets the summarizer configuration.
+    pub fn summarizer(mut self, summarizer: SummarizerConfig) -> Self {
+        self.summarizer = summarizer;
+        self
+    }
+
     /// Builds the AppConfig.
     pub fn build(self) -> AppConfig {
         AppConfig {
@@ -248,6 +313,7 @@ impl AppConfigBuilder {
             github_token: self.github_token,
             target_language: self.target_language,
             log_level: self.log_level.unwrap_or_else(|| "info".to_string()),
+            summarizer: self.summarizer,
         }
     }
 }
@@ -284,6 +350,7 @@ mod tests {
             github_token: None,
             target_language: None,
             log_level: "info".to_string(),
+            summarizer: SummarizerConfig::default(),
         };
 
         let result = config.validate();
@@ -304,6 +371,7 @@ mod tests {
             github_token: None,
             target_language: None,
             log_level: "info".to_string(),
+            summarizer: SummarizerConfig::default(),
         };
 
         let result = config.validate();
@@ -324,6 +392,7 @@ mod tests {
             github_token: None,
             target_language: None,
             log_level: "invalid".to_string(),
+            summarizer: SummarizerConfig::default(),
         };
 
         let result = config.validate();
@@ -377,9 +446,77 @@ mod tests {
             github_token: None,
             target_language: None,
             log_level: "info".to_string(),
+            summarizer: SummarizerConfig::default(),
         };
 
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_summarizer_config_loaded_from_toml() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        // Backup existing env vars
+        let orig_run_mode = std::env::var("RUN_MODE").ok();
+        let orig_webhook = std::env::var("DISCORD_WEBHOOK_URL").ok();
+        let orig_gemini = std::env::var("GEMINI_API_KEY").ok();
+
+        // Setup environment variables for test
+        std::env::set_var(
+            "DISCORD_WEBHOOK_URL",
+            "https://discord.com/api/webhooks/test-env",
+        );
+        std::env::set_var("GEMINI_API_KEY", "test-gemini-key");
+        std::env::set_var("RUN_MODE", "development");
+
+        let config = AppConfig::from_env().unwrap();
+        assert_eq!(config.summarizer().model, "gemini-2.5-flash");
+        assert!(config
+            .summarizer()
+            .summarize_prompt
+            .contains("{{repository}}"));
+        assert!(config
+            .summarizer()
+            .use_cases_prompt
+            .contains("{{repository}}"));
+        assert!(config
+            .summarizer()
+            .target_languages_prompt
+            .contains("{{repository}}"));
+
+        // The TOML values must stay identical to the Rust-side defaults so that
+        // environments without config/ behave the same as configured ones.
+        let defaults = SummarizerConfig::default();
+        assert_eq!(config.summarizer().model, defaults.model);
+        assert_eq!(
+            config.summarizer().summarize_prompt,
+            defaults.summarize_prompt
+        );
+        assert_eq!(
+            config.summarizer().use_cases_prompt,
+            defaults.use_cases_prompt
+        );
+        assert_eq!(
+            config.summarizer().target_languages_prompt,
+            defaults.target_languages_prompt
+        );
+
+        // Cleanup
+        if let Some(val) = orig_run_mode {
+            std::env::set_var("RUN_MODE", val);
+        } else {
+            std::env::remove_var("RUN_MODE");
+        }
+        if let Some(val) = orig_webhook {
+            std::env::set_var("DISCORD_WEBHOOK_URL", val);
+        } else {
+            std::env::remove_var("DISCORD_WEBHOOK_URL");
+        }
+        if let Some(val) = orig_gemini {
+            std::env::set_var("GEMINI_API_KEY", val);
+        } else {
+            std::env::remove_var("GEMINI_API_KEY");
+        }
     }
 
     #[test]

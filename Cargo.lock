@@ -661,6 +661,7 @@ dependencies = [
  "async-trait",
  "config",
  "dotenvy",
+ "futures",
  "httpmock",
  "insta",
  "mockall",

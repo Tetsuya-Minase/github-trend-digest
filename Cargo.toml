@@ -32,6 +32,9 @@ dotenvy = "0.15"
 # --- Async Traits ---
 async-trait = "0.1"
 
+# --- Async Utilities ---
+futures = "0.3"
+
 
 [dev-dependencies]
 # --- Testing ---

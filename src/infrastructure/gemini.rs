@@ -16,6 +16,20 @@ use crate::domain::{AiSummarizer, AppError, AppResult, Repository};
 #[derive(Debug, Serialize)]
 struct GenerateContentRequest {
     contents: Vec<RequestContent>,
+    #[serde(rename = "generationConfig")]
+    generation_config: GenerationConfig,
+}
+
+#[derive(Debug, Serialize)]
+struct GenerationConfig {
+    #[serde(rename = "thinkingConfig")]
+    thinking_config: ThinkingConfig,
+}
+
+#[derive(Debug, Serialize)]
+struct ThinkingConfig {
+    #[serde(rename = "thinkingLevel")]
+    thinking_level: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,8 +63,14 @@ struct CandidateContent {
 #[derive(Debug, Deserialize)]
 struct ResponsePart {
     #[serde(default)]
-    text: String,
+    text: Option<String>,
+    /// `true` for thought (reasoning) parts, which must not reach the result.
+    #[serde(default)]
+    thought: Option<bool>,
 }
+
+/// Thinking level requested from Gemini (kept low to limit latency and cost).
+const THINKING_LEVEL: &str = "low";
 
 /// Base URL of the Gemini API in production.
 const GEMINI_API_BASE_URL: &str = "https://generativelanguage.googleapis.com";
@@ -107,6 +127,11 @@ impl GeminiClient {
                     text: prompt.to_string(),
                 }],
             }],
+            generation_config: GenerationConfig {
+                thinking_config: ThinkingConfig {
+                    thinking_level: THINKING_LEVEL,
+                },
+            },
         };
 
         debug!("Calling Gemini API with model {}", self.config.model);
@@ -145,17 +170,9 @@ impl GeminiClient {
             AppError::AiServiceError(format!("Failed to parse Gemini response: {}", e))
         })?;
 
-        parsed
-            .candidates
-            .into_iter()
-            .next()
-            .and_then(|candidate| candidate.content)
-            .and_then(|content| content.parts.into_iter().next())
-            .map(|part| part.text)
-            .filter(|text| !text.trim().is_empty())
-            .ok_or_else(|| {
-                AppError::AiServiceError("Gemini returned an empty response".to_string())
-            })
+        extract_text(parsed).ok_or_else(|| {
+            AppError::AiServiceError("Gemini returned an empty response".to_string())
+        })
     }
 }
 
@@ -184,6 +201,24 @@ impl AiSummarizer for GeminiClient {
         let text = self.generate_content(&prompt).await?;
         Ok(parse_list(&text))
     }
+}
+
+/// Extracts the answer text from the first candidate.
+///
+/// Thought parts and parts without text are skipped, and the remaining
+/// texts are concatenated in order. Returns `None` if the result is blank.
+fn extract_text(response: GenerateContentResponse) -> Option<String> {
+    let text: String = response
+        .candidates
+        .into_iter()
+        .next()?
+        .content?
+        .parts
+        .into_iter()
+        .filter(|part| part.thought != Some(true))
+        .filter_map(|part| part.text)
+        .collect();
+    Some(text).filter(|text| !text.trim().is_empty())
 }
 
 /// Builds a prompt by replacing the `{{repository}}` placeholder in the
@@ -263,6 +298,249 @@ mod tests {
         .unwrap()
     }
 
+    /// Starts a mock server returning the given `parts` and returns the
+    /// server together with a client pointing at it.
+    fn start_server_with_parts(parts: serde_json::Value) -> (MockServer, GeminiClient) {
+        let server = MockServer::start();
+        server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-3.8-flash:generateContent");
+            then.status(200).json_body(serde_json::json!({
+                "candidates": [ { "content": { "parts": parts, "role": "model" } } ]
+            }));
+        });
+        let client = create_test_client(server.base_url());
+        (server, client)
+    }
+
+    fn assert_empty_response(result: AppResult<String>) {
+        match result.unwrap_err() {
+            AppError::AiServiceError(msg) => assert!(msg.contains("empty response")),
+            other => panic!("Expected AiServiceError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_summarize_sends_thinking_config() {
+        // Given: a mock that only matches when thinkingLevel is "low"
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-3.8-flash:generateContent")
+                .json_body_includes(
+                    r#"{"generationConfig":{"thinkingConfig":{"thinkingLevel":"low"}}}"#,
+                );
+            then.status(200).json_body(serde_json::json!({
+                "candidates": [ { "content": { "parts": [ { "text": "テスト要約です。" } ] } } ]
+            }));
+        });
+        let client = create_test_client(server.base_url());
+
+        // When: summarizing
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then: the request matched and the summary is returned
+        mock.assert();
+        assert_eq!(result.unwrap(), "テスト要約です。");
+    }
+
+    #[tokio::test]
+    async fn test_summarize_request_contains_prompt() {
+        // Given: a mock that requires the prompt in contents
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1beta/models/gemini-3.8-flash:generateContent")
+                .body_includes("\"contents\"")
+                .body_includes("Name: rust-lang/rust");
+            then.status(200).json_body(serde_json::json!({
+                "candidates": [ { "content": { "parts": [ { "text": "ok" } ] } } ]
+            }));
+        });
+        let client = create_test_client(server.base_url());
+
+        // When: summarizing
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then: the request matched
+        mock.assert();
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_summarize_excludes_thought_part_with_text() {
+        // Given: a thought part carrying text followed by the answer
+        let (_server, client) = start_server_with_parts(serde_json::json!([
+            { "text": "考え中: 要約を組み立てる", "thought": true },
+            { "text": "テスト要約です。" }
+        ]));
+
+        // When
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then: the thought text is not included
+        assert_eq!(result.unwrap(), "テスト要約です。");
+    }
+
+    #[tokio::test]
+    async fn test_summarize_skips_thought_part_without_text() {
+        // Given: a signature-only thought part followed by the answer
+        let (_server, client) = start_server_with_parts(serde_json::json!([
+            { "thought": true, "thoughtSignature": "AbC123" },
+            { "text": "テスト要約です。" }
+        ]));
+
+        // When
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then
+        assert_eq!(result.unwrap(), "テスト要約です。");
+    }
+
+    #[tokio::test]
+    async fn test_extract_use_cases_ignores_thought_part() {
+        // Given
+        let (_server, client) = start_server_with_parts(serde_json::json!([
+            { "text": "- 思考中の箇条書き", "thought": true },
+            { "text": "- CLIツール\n- CI連携" }
+        ]));
+
+        // When
+        let result = client.extract_use_cases(&create_test_repository()).await;
+
+        // Then
+        assert_eq!(result.unwrap(), vec!["CLIツール", "CI連携"]);
+    }
+
+    #[tokio::test]
+    async fn test_identify_target_languages_ignores_thought_part() {
+        // Given
+        let (_server, client) = start_server_with_parts(serde_json::json!([
+            { "text": "- Python", "thought": true },
+            { "text": "- Rust\n- Go" }
+        ]));
+
+        // When
+        let result = client
+            .identify_target_languages(&create_test_repository())
+            .await;
+
+        // Then
+        assert_eq!(result.unwrap(), vec!["Rust", "Go"]);
+    }
+
+    #[tokio::test]
+    async fn test_summarize_concatenates_text_parts_in_order() {
+        // Given: text parts around a thought part
+        let (_server, client) = start_server_with_parts(serde_json::json!([
+            { "text": "前半。" },
+            { "text": "考え", "thought": true },
+            { "text": "後半。" }
+        ]));
+
+        // When
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then
+        assert_eq!(result.unwrap(), "前半。後半。");
+    }
+
+    #[tokio::test]
+    async fn test_identify_target_languages_parses_list_split_across_parts() {
+        // Given: a bullet list split across parts
+        let (_server, client) = start_server_with_parts(serde_json::json!([
+            { "text": "- Rust\n" },
+            { "text": "- Go" }
+        ]));
+
+        // When
+        let result = client
+            .identify_target_languages(&create_test_repository())
+            .await;
+
+        // Then
+        assert_eq!(result.unwrap(), vec!["Rust", "Go"]);
+    }
+
+    #[tokio::test]
+    async fn test_summarize_only_thought_parts_is_empty_response() {
+        // Given: only thought parts
+        let (_server, client) = start_server_with_parts(serde_json::json!([
+            { "text": "考え中", "thought": true },
+            { "thought": true, "thoughtSignature": "AbC123" }
+        ]));
+
+        // When
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then
+        assert_empty_response(result);
+    }
+
+    #[tokio::test]
+    async fn test_summarize_part_without_text_or_thought_is_empty_response() {
+        // Given: a part with neither text nor thought
+        let (_server, client) =
+            start_server_with_parts(serde_json::json!([ { "thoughtSignature": "xyz" } ]));
+
+        // When
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then: empty response error, not a parse error
+        assert_empty_response(result);
+    }
+
+    #[tokio::test]
+    async fn test_summarize_thought_false_is_regular_text() {
+        // Given
+        let (_server, client) = start_server_with_parts(serde_json::json!([
+            { "text": "テスト要約です。", "thought": false }
+        ]));
+
+        // When
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then
+        assert_eq!(result.unwrap(), "テスト要約です。");
+    }
+
+    #[tokio::test]
+    async fn test_summarize_empty_parts_is_empty_response() {
+        // Given
+        let (_server, client) = start_server_with_parts(serde_json::json!([]));
+
+        // When
+        let result = client.summarize(&create_test_repository()).await;
+
+        // Then
+        assert_empty_response(result);
+    }
+
+    #[tokio::test]
+    async fn test_summarize_thought_position_invariant() {
+        // P1/P2: thought text never leaks and the result equals the
+        // concatenation of non-thought parts, wherever the thought sits.
+        let thought = serde_json::json!({ "text": "漏れてはいけない思考", "thought": true });
+        let a = serde_json::json!({ "text": "AAA" });
+        let b = serde_json::json!({ "text": "BBB" });
+        let cases = [
+            serde_json::json!([thought, a, b]),
+            serde_json::json!([a, thought, b]),
+            serde_json::json!([a, b, thought]),
+        ];
+
+        for parts in cases {
+            // Given
+            let (_server, client) = start_server_with_parts(parts.clone());
+
+            // When
+            let result = client.summarize(&create_test_repository()).await;
+
+            // Then
+            assert_eq!(result.unwrap(), "AAABBB", "parts: {}", parts);
+        }
+    }
+
     #[test]
     fn test_parse_list_strips_bullets() {
         let result = parse_list("- A\n* B\n1. C\n\n");
@@ -289,7 +567,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/v1beta/models/gemini-2.5-flash:generateContent")
+                .path("/v1beta/models/gemini-3.8-flash:generateContent")
                 .header("x-goog-api-key", "test-api-key");
             then.status(200).json_body(serde_json::json!({
                 "candidates": [
@@ -318,7 +596,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/v1beta/models/gemini-2.5-flash:generateContent")
+                .path("/v1beta/models/gemini-3.8-flash:generateContent")
                 .header("x-goog-api-key", "test-api-key");
             then.status(200).json_body(serde_json::json!({
                 "candidates": [
@@ -347,7 +625,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/v1beta/models/gemini-2.5-flash:generateContent")
+                .path("/v1beta/models/gemini-3.8-flash:generateContent")
                 .header("x-goog-api-key", "test-api-key");
             then.status(200).json_body(serde_json::json!({
                 "candidates": [
@@ -377,7 +655,7 @@ mod tests {
 
             let mock = server.mock(|when, then| {
                 when.method(POST)
-                    .path("/v1beta/models/gemini-2.5-flash:generateContent");
+                    .path("/v1beta/models/gemini-3.8-flash:generateContent");
                 then.status(status).body("API key not valid");
             });
 
@@ -403,7 +681,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/v1beta/models/gemini-2.5-flash:generateContent");
+                .path("/v1beta/models/gemini-3.8-flash:generateContent");
             then.status(429).body("Resource has been exhausted");
         });
 
@@ -427,7 +705,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/v1beta/models/gemini-2.5-flash:generateContent");
+                .path("/v1beta/models/gemini-3.8-flash:generateContent");
             then.status(500).body("Internal error");
         });
 
@@ -451,7 +729,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/v1beta/models/gemini-2.5-flash:generateContent");
+                .path("/v1beta/models/gemini-3.8-flash:generateContent");
             then.status(200).json_body(serde_json::json!({
                 "candidates": [
                     {
@@ -484,7 +762,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/v1beta/models/gemini-2.5-flash:generateContent");
+                .path("/v1beta/models/gemini-3.8-flash:generateContent");
             then.status(200).body("not a json");
         });
 
@@ -508,7 +786,7 @@ mod tests {
 
         let mock = server.mock(|when, then| {
             when.method(POST)
-                .path("/v1beta/models/gemini-2.5-flash:generateContent");
+                .path("/v1beta/models/gemini-3.8-flash:generateContent");
             then.status(200)
                 .json_body(serde_json::json!({ "candidates": [] }));
         });

@@ -18,7 +18,7 @@ languages = ["rust", ""]
 # Configuration for the AI summarization service.
 [summarizer]
 # Gemini model name used for summarization.
-model = "gemini-2.5-flash"
+model = "gemini-3.8-flash"
 
 # Prompt templates. "{{repository}}" is replaced with the repository info block.
 summarize_prompt = """

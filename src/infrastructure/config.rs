@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::domain::{AppError, AppResult};
 
 /// Default Gemini model used for summarization.
-const DEFAULT_SUMMARIZER_MODEL: &str = "gemini-2.5-flash";
+const DEFAULT_SUMMARIZER_MODEL: &str = "gemini-3.8-flash";
 
 /// Default prompt template for repository summarization.
 const DEFAULT_SUMMARIZE_PROMPT: &str = "\
@@ -453,6 +453,16 @@ mod tests {
     }
 
     #[test]
+    fn test_summarizer_config_default_model() {
+        // Given: no configuration
+        // When: creating the default summarizer config
+        let config = SummarizerConfig::default();
+
+        // Then: the default model is gemini-3.8-flash
+        assert_eq!(config.model, "gemini-3.8-flash");
+    }
+
+    #[test]
     fn test_summarizer_config_loaded_from_toml() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
@@ -470,7 +480,7 @@ mod tests {
         std::env::set_var("RUN_MODE", "development");
 
         let config = AppConfig::from_env().unwrap();
-        assert_eq!(config.summarizer().model, "gemini-2.5-flash");
+        assert_eq!(config.summarizer().model, "gemini-3.8-flash");
         assert!(config
             .summarizer()
             .summarize_prompt

@@ -283,6 +283,17 @@ impl TrendingSummary {
     }
 }
 
+/// Result of AI analysis of a repository.
+///
+/// Produced by a single AI call and used to build a `TrendingSummary`.
+/// Holds plain data only; validation happens when building a `TrendingSummary`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryInsight {
+    pub summary: String,
+    pub use_cases: Vec<String>,
+    pub target_languages: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

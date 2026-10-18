@@ -5,7 +5,7 @@
 //! allowing the domain layer to remain independent of infrastructure details.
 use async_trait::async_trait;
 
-use super::entities::{Repository, TrendingSummary};
+use super::entities::{Repository, RepositoryInsight, TrendingSummary};
 use super::errors::AppResult;
 
 /// Trait for fetching trending repositories.
@@ -72,9 +72,9 @@ pub trait GithubApiClient: Send + Sync {
     async fn verify_credentials(&self) -> AppResult<()>;
 }
 
-/// Trait for AI-powered summarization of repositories.
+/// Trait for AI-powered analysis of repositories.
 ///
-/// This trait abstracts the AI service used for generating summaries,
+/// This trait abstracts the AI service used for analyzing repositories,
 /// allowing different implementations (e.g., Gemini, GPT, Claude).
 ///
 /// # Design Notes
@@ -82,40 +82,20 @@ pub trait GithubApiClient: Send + Sync {
 /// - Allows easy switching between different AI providers
 #[async_trait]
 pub trait AiSummarizer: Send + Sync {
-    /// Generates a summary for the given repository.
+    /// Analyzes the given repository in a single AI call.
     ///
     /// # Arguments
-    /// - `repository`: Repository to summarize
+    /// - `repository`: Repository to analyze
     ///
     /// # Returns
-    /// - `Ok(String)`: AI-generated summary
-    /// - `Err(AppError)`: Error if summarization fails
+    /// - `Ok(RepositoryInsight)`: Summary, use cases and target languages
+    /// - `Err(AppError)`: Error if the analysis fails
     ///
     /// # Examples
     /// ```ignore
-    /// let summary = ai_summarizer.summarize(&repository).await?;
+    /// let insight = ai_summarizer.analyze(&repository).await?;
     /// ```
-    async fn summarize(&self, repository: &Repository) -> AppResult<String>;
-
-    /// Extracts potential use cases from the repository.
-    ///
-    /// # Arguments
-    /// - `repository`: Repository to analyze
-    ///
-    /// # Returns
-    /// - `Ok(Vec<String>)`: List of identified use cases
-    /// - `Err(AppError)`: Error if analysis fails
-    async fn extract_use_cases(&self, repository: &Repository) -> AppResult<Vec<String>>;
-
-    /// Identifies target programming languages for the repository.
-    ///
-    /// # Arguments
-    /// - `repository`: Repository to analyze
-    ///
-    /// # Returns
-    /// - `Ok(Vec<String>)`: List of target languages
-    /// - `Err(AppError)`: Error if analysis fails
-    async fn identify_target_languages(&self, repository: &Repository) -> AppResult<Vec<String>>;
+    async fn analyze(&self, repository: &Repository) -> AppResult<RepositoryInsight>;
 }
 
 /// Trait for sending notifications about trending repositories.
@@ -194,9 +174,7 @@ mod tests {
 
         #[async_trait]
         impl AiSummarizer for AiSummarizerImpl {
-            async fn summarize(&self, repository: &Repository) -> AppResult<String>;
-            async fn extract_use_cases(&self, repository: &Repository) -> AppResult<Vec<String>>;
-            async fn identify_target_languages(&self, repository: &Repository) -> AppResult<Vec<String>>;
+            async fn analyze(&self, repository: &Repository) -> AppResult<RepositoryInsight>;
         }
     }
 

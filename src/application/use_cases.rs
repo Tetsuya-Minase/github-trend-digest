@@ -817,4 +817,82 @@ mod tests {
             _ => panic!("Expected ScrapingError"),
         }
     }
+
+    #[tokio::test]
+    async fn test_with_max_concurrency_t6() {
+        let trending_repo = MockTrendingRepo::new();
+        let github_client = MockGithubClient::new();
+        let ai_summarizer = MockAiSummarizerImpl::new();
+        let notification_sender = MockNotificationSenderImpl::new();
+
+        let use_case = FetchAndSummarizeTrendingUseCase::new(
+            Arc::new(trending_repo),
+            Arc::new(github_client),
+            Arc::new(ai_summarizer),
+            Arc::new(notification_sender),
+        );
+
+        let use_case = use_case.with_max_concurrency(0);
+        assert_eq!(use_case.max_concurrency, 1);
+
+        let use_case = use_case.with_max_concurrency(5);
+        assert_eq!(use_case.max_concurrency, 5);
+    }
+
+    #[tokio::test]
+    async fn test_execute_all_fail_t7() {
+        let mut trending_repo = MockTrendingRepo::new();
+        let repos = vec![
+            Repository::new(
+                "repo1".to_string(),
+                "owner".to_string(),
+                "http://example.com".to_string(),
+                None,
+                1,
+                None,
+                vec![],
+            )
+            .unwrap(),
+            Repository::new(
+                "repo2".to_string(),
+                "owner".to_string(),
+                "http://example.com".to_string(),
+                None,
+                1,
+                None,
+                vec![],
+            )
+            .unwrap(),
+        ];
+        let expected_repos = repos.clone();
+        trending_repo
+            .expect_fetch_trending()
+            .times(1)
+            .returning(move |_| Ok(expected_repos.clone()));
+
+        let mut github_client = MockGithubClient::new();
+        github_client
+            .expect_get_repository_details()
+            .returning(|_, _| Err(crate::domain::AppError::GithubApiError("API".to_string())));
+
+        let mut ai_summarizer = MockAiSummarizerImpl::new();
+        ai_summarizer
+            .expect_summarize()
+            .returning(|_| Err(crate::domain::AppError::AiServiceError("AI".to_string())));
+
+        let mut notification_sender = MockNotificationSenderImpl::new();
+        notification_sender.expect_send_batch().times(0);
+
+        let use_case = FetchAndSummarizeTrendingUseCase::new(
+            Arc::new(trending_repo),
+            Arc::new(github_client),
+            Arc::new(ai_summarizer),
+            Arc::new(notification_sender),
+        );
+
+        let result = use_case.execute(None).await;
+        assert!(result.is_ok());
+        let summaries = result.unwrap();
+        assert_eq!(summaries.len(), 0);
+    }
 }

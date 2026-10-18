@@ -7,6 +7,6 @@ pub mod errors;
 pub mod repositories;
 
 // Re-export commonly used types for convenience
-pub use entities::{Repository, TrendingSummary};
+pub use entities::{Repository, RepositoryInsight, TrendingSummary};
 pub use errors::{AppError, AppResult};
 pub use repositories::{AiSummarizer, GithubApiClient, NotificationSender, TrendingRepository};

@@ -221,21 +221,16 @@ impl FetchAndSummarizeTrendingUseCase {
     /// - `Ok(TrendingSummary)`: Created summary
     /// - `Err(AppError)`: Error if summarization fails
     async fn create_summary(&self, repository: &Repository) -> AppResult<TrendingSummary> {
-        // Generate AI summary
-        let ai_summary = self.ai_summarizer.summarize(repository).await?;
-
-        // Extract use cases
-        let use_cases = self.ai_summarizer.extract_use_cases(repository).await?;
-
-        // Identify target languages
-        let target_languages = self
-            .ai_summarizer
-            .identify_target_languages(repository)
-            .await?;
+        let insight = self.ai_summarizer.analyze(repository).await?;
 
         // Create TrendingSummary
-        TrendingSummary::new(repository.clone(), ai_summary, use_cases, target_languages)
-            .map_err(crate::domain::AppError::ValidationError)
+        TrendingSummary::new(
+            repository.clone(),
+            insight.summary,
+            insight.use_cases,
+            insight.target_languages,
+        )
+        .map_err(crate::domain::AppError::ValidationError)
     }
 }
 
@@ -247,6 +242,7 @@ mod tests {
 
     // Import mock trait implementations
     use crate::domain::repositories::*;
+    use crate::domain::RepositoryInsight;
 
     mock! {
         TrendingRepo {}
@@ -272,9 +268,7 @@ mod tests {
 
         #[async_trait::async_trait]
         impl AiSummarizer for AiSummarizerImpl {
-            async fn summarize(&self, repository: &Repository) -> AppResult<String>;
-            async fn extract_use_cases(&self, repository: &Repository) -> AppResult<Vec<String>>;
-            async fn identify_target_languages(&self, repository: &Repository) -> AppResult<Vec<String>>;
+            async fn analyze(&self, repository: &Repository) -> AppResult<RepositoryInsight>;
         }
     }
 
@@ -309,6 +303,14 @@ mod tests {
 
         async fn verify_credentials(&self) -> AppResult<()> {
             Ok(())
+        }
+    }
+
+    fn stub_insight(summary: &str) -> RepositoryInsight {
+        RepositoryInsight {
+            summary: summary.to_string(),
+            use_cases: vec!["use case".to_string()],
+            target_languages: vec!["Rust".to_string()],
         }
     }
 
@@ -368,18 +370,13 @@ mod tests {
             });
 
         let mut ai_summarizer = MockAiSummarizerImpl::new();
-        ai_summarizer
-            .expect_summarize()
-            .times(1)
-            .returning(|_| Ok("A systems programming language".to_string()));
-        ai_summarizer
-            .expect_extract_use_cases()
-            .times(1)
-            .returning(|_| Ok(vec!["System programming".to_string()]));
-        ai_summarizer
-            .expect_identify_target_languages()
-            .times(1)
-            .returning(|_| Ok(vec!["Rust".to_string()]));
+        ai_summarizer.expect_analyze().times(1).returning(|_| {
+            Ok(RepositoryInsight {
+                summary: "A systems programming language".to_string(),
+                use_cases: vec!["System programming".to_string()],
+                target_languages: vec!["Rust".to_string()],
+            })
+        });
 
         let mut notification_sender = MockNotificationSenderImpl::new();
         notification_sender
@@ -403,6 +400,55 @@ mod tests {
         let summaries = result.unwrap();
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].ai_summary(), "A systems programming language");
+    }
+
+    #[tokio::test]
+    async fn test_execute_calls_analyze_once_per_repository() {
+        // Given: 2 trending repositories and an analyzer expected exactly twice
+        let mut trending_repo = MockTrendingRepo::new();
+        trending_repo
+            .expect_fetch_trending()
+            .times(1)
+            .returning(|_| {
+                Ok(vec![
+                    create_test_repository_named("repo1"),
+                    create_test_repository_named("repo2"),
+                ])
+            });
+
+        let mut ai_summarizer = MockAiSummarizerImpl::new();
+        ai_summarizer.expect_analyze().times(2).returning(|_| {
+            Ok(RepositoryInsight {
+                summary: "Summary".to_string(),
+                use_cases: vec!["CLI".to_string()],
+                target_languages: vec!["Rust".to_string()],
+            })
+        });
+
+        let mut notification_sender = MockNotificationSenderImpl::new();
+        notification_sender
+            .expect_send_batch()
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let use_case = FetchAndSummarizeTrendingUseCase::new(
+            Arc::new(trending_repo),
+            Arc::new(EchoGithubClient),
+            Arc::new(ai_summarizer),
+            Arc::new(notification_sender),
+        );
+
+        // When
+        let result = use_case.execute(None).await;
+
+        // Then: each summary carries the insight of its single analyze call
+        let summaries = result.unwrap();
+        assert_eq!(summaries.len(), 2);
+        for summary in &summaries {
+            assert_eq!(summary.ai_summary(), "Summary");
+            assert_eq!(summary.use_cases(), ["CLI".to_string()]);
+            assert_eq!(summary.target_languages(), ["Rust".to_string()]);
+        }
     }
 
     #[tokio::test]
@@ -433,18 +479,13 @@ mod tests {
             });
 
         let mut ai_summarizer = MockAiSummarizerImpl::new();
-        ai_summarizer
-            .expect_summarize()
-            .times(1)
-            .returning(|_| Ok("A systems programming language".to_string()));
-        ai_summarizer
-            .expect_extract_use_cases()
-            .times(1)
-            .returning(|_| Ok(vec!["System programming".to_string()]));
-        ai_summarizer
-            .expect_identify_target_languages()
-            .times(1)
-            .returning(|_| Ok(vec!["Rust".to_string()]));
+        ai_summarizer.expect_analyze().times(1).returning(|_| {
+            Ok(RepositoryInsight {
+                summary: "A systems programming language".to_string(),
+                use_cases: vec!["System programming".to_string()],
+                target_languages: vec!["Rust".to_string()],
+            })
+        });
 
         let mut notification_sender = MockNotificationSenderImpl::new();
         notification_sender
@@ -494,18 +535,13 @@ mod tests {
             .returning(|_, _| Err(AppError::GithubApiError("Rate limit exceeded".to_string())));
 
         let mut ai_summarizer = MockAiSummarizerImpl::new();
-        ai_summarizer
-            .expect_summarize()
-            .times(1)
-            .returning(|_| Ok("A systems programming language".to_string()));
-        ai_summarizer
-            .expect_extract_use_cases()
-            .times(1)
-            .returning(|_| Ok(vec!["System programming".to_string()]));
-        ai_summarizer
-            .expect_identify_target_languages()
-            .times(1)
-            .returning(|_| Ok(vec!["Rust".to_string()]));
+        ai_summarizer.expect_analyze().times(1).returning(|_| {
+            Ok(RepositoryInsight {
+                summary: "A systems programming language".to_string(),
+                use_cases: vec!["System programming".to_string()],
+                target_languages: vec!["Rust".to_string()],
+            })
+        });
 
         let mut notification_sender = MockNotificationSenderImpl::new();
         notification_sender
@@ -538,7 +574,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         /// Test stub that tracks the maximum number of concurrent
-        /// `summarize` calls observed during execution.
+        /// `analyze` calls observed during execution.
         struct ConcurrencyTrackingSummarizer {
             current: Arc<AtomicUsize>,
             max_observed: Arc<AtomicUsize>,
@@ -546,23 +582,12 @@ mod tests {
 
         #[async_trait::async_trait]
         impl AiSummarizer for ConcurrencyTrackingSummarizer {
-            async fn summarize(&self, _repository: &Repository) -> AppResult<String> {
+            async fn analyze(&self, _repository: &Repository) -> AppResult<RepositoryInsight> {
                 let current = self.current.fetch_add(1, Ordering::SeqCst) + 1;
                 self.max_observed.fetch_max(current, Ordering::SeqCst);
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 self.current.fetch_sub(1, Ordering::SeqCst);
-                Ok("summary".to_string())
-            }
-
-            async fn extract_use_cases(&self, _repository: &Repository) -> AppResult<Vec<String>> {
-                Ok(vec!["use case".to_string()])
-            }
-
-            async fn identify_target_languages(
-                &self,
-                _repository: &Repository,
-            ) -> AppResult<Vec<String>> {
-                Ok(vec!["Rust".to_string()])
+                Ok(stub_insight("summary"))
             }
         }
 
@@ -613,7 +638,7 @@ mod tests {
     async fn test_execute_partial_success() {
         use crate::domain::AppError;
 
-        /// Test stub that fails `summarize` only for the repository named
+        /// Test stub that fails `analyze` only for the repository named
         /// `failing_name` and succeeds for all others.
         struct PartiallyFailingSummarizer {
             failing_name: String,
@@ -621,23 +646,12 @@ mod tests {
 
         #[async_trait::async_trait]
         impl AiSummarizer for PartiallyFailingSummarizer {
-            async fn summarize(&self, repository: &Repository) -> AppResult<String> {
+            async fn analyze(&self, repository: &Repository) -> AppResult<RepositoryInsight> {
                 if repository.name() == self.failing_name {
                     Err(AppError::AiServiceError("Summarization failed".to_string()))
                 } else {
-                    Ok(format!("Summary of {}", repository.name()))
+                    Ok(stub_insight(&format!("Summary of {}", repository.name())))
                 }
-            }
-
-            async fn extract_use_cases(&self, _repository: &Repository) -> AppResult<Vec<String>> {
-                Ok(vec!["use case".to_string()])
-            }
-
-            async fn identify_target_languages(
-                &self,
-                _repository: &Repository,
-            ) -> AppResult<Vec<String>> {
-                Ok(vec!["Rust".to_string()])
             }
         }
 
@@ -688,32 +702,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_preserves_order() {
-        /// Test stub whose `summarize` finishes faster for repositories that
+        /// Test stub whose `analyze` finishes faster for repositories that
         /// appear later in the input, so out-of-order collection would be
         /// detected by the order assertion below.
         struct ReverseDelaySummarizer;
 
         #[async_trait::async_trait]
         impl AiSummarizer for ReverseDelaySummarizer {
-            async fn summarize(&self, repository: &Repository) -> AppResult<String> {
+            async fn analyze(&self, repository: &Repository) -> AppResult<RepositoryInsight> {
                 let delay_ms = match repository.name() {
                     "a" => 60,
                     "b" => 30,
                     _ => 0,
                 };
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                Ok(format!("Summary of {}", repository.name()))
-            }
-
-            async fn extract_use_cases(&self, _repository: &Repository) -> AppResult<Vec<String>> {
-                Ok(vec!["use case".to_string()])
-            }
-
-            async fn identify_target_languages(
-                &self,
-                _repository: &Repository,
-            ) -> AppResult<Vec<String>> {
-                Ok(vec!["Rust".to_string()])
+                Ok(stub_insight(&format!("Summary of {}", repository.name())))
             }
         }
 
@@ -877,7 +880,7 @@ mod tests {
 
         let mut ai_summarizer = MockAiSummarizerImpl::new();
         ai_summarizer
-            .expect_summarize()
+            .expect_analyze()
             .returning(|_| Err(crate::domain::AppError::AiServiceError("AI".to_string())));
 
         let mut notification_sender = MockNotificationSenderImpl::new();

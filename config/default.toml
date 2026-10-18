@@ -20,21 +20,12 @@ languages = ["rust", ""]
 # Gemini model name used for summarization.
 model = "gemini-3.8-flash"
 
-# Prompt templates. "{{repository}}" is replaced with the repository info block.
-summarize_prompt = """
-以下のGitHubリポジトリについて、何をするものか・なぜ注目されているかを日本語で3文以内で要約してください。要約本文のみを出力してください。
-
-{{repository}}
-"""
-
-use_cases_prompt = """
-以下のGitHubリポジトリの主要なユースケースを日本語で最大5件、1行に1件、行頭に "- " を付けた箇条書きのみで出力してください。
-
-{{repository}}
-"""
-
-target_languages_prompt = """
-以下のGitHubリポジトリが主な対象とするプログラミング言語を最大5件、1行に1言語、行頭に "- " を付けた箇条書きのみで出力してください。
+# Prompt template. "{{repository}}" is replaced with the repository info block.
+analyze_prompt = """
+以下のGitHubリポジトリを分析し、次の3つのキーを持つJSONオブジェクトのみを出力してください。
+- summary: 何をするものか・なぜ注目されているかを日本語で3文以内で要約した文章
+- use_cases: 主要なユースケースを日本語で最大5件の文字列配列
+- target_languages: 主な対象プログラミング言語を最大5件の文字列配列
 
 {{repository}}
 """

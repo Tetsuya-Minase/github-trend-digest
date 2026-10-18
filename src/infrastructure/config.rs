@@ -9,47 +9,32 @@ use crate::domain::{AppError, AppResult};
 /// Default Gemini model used for summarization.
 const DEFAULT_SUMMARIZER_MODEL: &str = "gemini-3.8-flash";
 
-/// Default prompt template for repository summarization.
-const DEFAULT_SUMMARIZE_PROMPT: &str = "\
-以下のGitHubリポジトリについて、何をするものか・なぜ注目されているかを日本語で3文以内で要約してください。要約本文のみを出力してください。
-
-{{repository}}
-";
-
-/// Default prompt template for use case extraction.
-const DEFAULT_USE_CASES_PROMPT: &str = "\
-以下のGitHubリポジトリの主要なユースケースを日本語で最大5件、1行に1件、行頭に \"- \" を付けた箇条書きのみで出力してください。
-
-{{repository}}
-";
-
-/// Default prompt template for target language identification.
-const DEFAULT_TARGET_LANGUAGES_PROMPT: &str = "\
-以下のGitHubリポジトリが主な対象とするプログラミング言語を最大5件、1行に1言語、行頭に \"- \" を付けた箇条書きのみで出力してください。
+/// Default prompt template for repository analysis.
+const DEFAULT_ANALYZE_PROMPT: &str = "\
+以下のGitHubリポジトリを分析し、次の3つのキーを持つJSONオブジェクトのみを出力してください。
+- summary: 何をするものか・なぜ注目されているかを日本語で3文以内で要約した文章
+- use_cases: 主要なユースケースを日本語で最大5件の文字列配列
+- target_languages: 主な対象プログラミング言語を最大5件の文字列配列
 
 {{repository}}
 ";
 
 /// Configuration for the AI summarization service.
 ///
-/// Holds the Gemini model name and prompt templates for each
-/// `AiSummarizer` method. Templates use the `{{repository}}` placeholder,
+/// Holds the Gemini model name and the prompt template used by
+/// `AiSummarizer::analyze`. The template uses the `{{repository}}` placeholder,
 /// which is replaced with a repository info block at request time.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SummarizerConfig {
     pub model: String,
-    pub summarize_prompt: String,
-    pub use_cases_prompt: String,
-    pub target_languages_prompt: String,
+    pub analyze_prompt: String,
 }
 
 impl Default for SummarizerConfig {
     fn default() -> Self {
         Self {
             model: DEFAULT_SUMMARIZER_MODEL.to_string(),
-            summarize_prompt: DEFAULT_SUMMARIZE_PROMPT.to_string(),
-            use_cases_prompt: DEFAULT_USE_CASES_PROMPT.to_string(),
-            target_languages_prompt: DEFAULT_TARGET_LANGUAGES_PROMPT.to_string(),
+            analyze_prompt: DEFAULT_ANALYZE_PROMPT.to_string(),
         }
     }
 }
@@ -463,6 +448,18 @@ mod tests {
     }
 
     #[test]
+    fn test_summarizer_config_default_prompt_mentions_json_keys() {
+        // Given: no configuration
+        // When: creating the default summarizer config
+        let prompt = SummarizerConfig::default().analyze_prompt;
+
+        // Then: the prompt mentions the three JSON keys
+        for key in ["summary", "use_cases", "target_languages"] {
+            assert!(prompt.contains(key), "missing key: {}", key);
+        }
+    }
+
+    #[test]
     fn test_summarizer_config_loaded_from_toml() {
         let _lock = ENV_MUTEX.lock().unwrap();
 
@@ -483,33 +480,14 @@ mod tests {
         assert_eq!(config.summarizer().model, "gemini-3.8-flash");
         assert!(config
             .summarizer()
-            .summarize_prompt
-            .contains("{{repository}}"));
-        assert!(config
-            .summarizer()
-            .use_cases_prompt
-            .contains("{{repository}}"));
-        assert!(config
-            .summarizer()
-            .target_languages_prompt
+            .analyze_prompt
             .contains("{{repository}}"));
 
         // The TOML values must stay identical to the Rust-side defaults so that
         // environments without config/ behave the same as configured ones.
         let defaults = SummarizerConfig::default();
         assert_eq!(config.summarizer().model, defaults.model);
-        assert_eq!(
-            config.summarizer().summarize_prompt,
-            defaults.summarize_prompt
-        );
-        assert_eq!(
-            config.summarizer().use_cases_prompt,
-            defaults.use_cases_prompt
-        );
-        assert_eq!(
-            config.summarizer().target_languages_prompt,
-            defaults.target_languages_prompt
-        );
+        assert_eq!(config.summarizer().analyze_prompt, defaults.analyze_prompt);
 
         // Cleanup
         if let Some(val) = orig_run_mode {

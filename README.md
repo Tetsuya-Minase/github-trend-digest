@@ -89,7 +89,7 @@ docker run --rm github-trending-summary rust; echo "exit=$?"   # exit=1
 
 ### Scheduled Execution (GitHub Actions)
 
-The workflow `.github/workflows/cron.yml` ("Daily Trending Digest") runs every day at 0:00 UTC (9:00 JST) with `cargo run --release`, once per language in the matrix (`rust` and all languages). Keep the matrix in sync with `languages` in `config/default.toml`.
+The workflow `.github/workflows/cron.yml` ("Daily Trending Digest") runs twice a day at 23:00 UTC (8:00 JST) and 10:00 UTC (19:00 JST) with `cargo run --release`, once per language in the matrix (`rust` and all languages). Keep the matrix in sync with `languages` in `config/default.toml`.
 
 **Register secrets** in your repository under `Settings > Secrets and variables > Actions`:
 

@@ -2,7 +2,8 @@ name: Daily Trending Digest
 
 on:
   schedule:
-    - cron: '0 0 * * *'   # 09:00 JST
+    - cron: '0 23 * * *'  # 08:00 JST
+    - cron: '0 10 * * *'  # 19:00 JST
   workflow_dispatch:        # manual run
 
 permissions:

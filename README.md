@@ -73,6 +73,33 @@ This project adopts the **Hexagonal Architecture** (also known as Ports and Adap
     ./target/release/github-trending-summary
     ```
 
+### Run with Docker
+
+Build the image and run it with secrets injected at runtime (secrets are never baked into the image; `.env*` is excluded by `.dockerignore`).
+
+```bash
+docker build -t github-trending-summary .
+
+# Run with secrets loaded from .env (the argument is the language filter)
+docker run --rm --env-file .env github-trending-summary rust
+
+# Without the required environment variables, the process exits with a non-zero code
+docker run --rm github-trending-summary rust; echo "exit=$?"   # exit=1
+```
+
+### Scheduled Execution (GitHub Actions)
+
+The workflow `.github/workflows/cron.yml` ("Daily Trending Digest") runs every day at 0:00 UTC (9:00 JST) with `cargo run --release`, once per language in the matrix (`rust` and all languages). Keep the matrix in sync with `languages` in `config/default.toml`.
+
+**Register secrets** in your repository under `Settings > Secrets and variables > Actions`:
+
+- `DISCORD_WEBHOOK_URL`: Discord webhook URL for notifications
+- `GEMINI_API_KEY`: Google Gemini API key
+
+`GITHUB_TOKEN` is the built-in token provided by GitHub Actions, so you do not need to register it.
+
+**Run manually:** open the `Actions` tab, select `Daily Trending Digest`, and click `Run workflow`.
+
 ## 4. Development Guidelines
 
 ### Coding Style
